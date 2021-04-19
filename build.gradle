@@ -1,5 +1,24 @@
 apply plugin: 'groovy'
 apply plugin: 'maven'
+apply plugin: 'signing'
+
+task javadocJar(type: Jar) {
+    classifier = 'javadoc'
+    from javadoc
+}
+
+task sourcesJar(type: Jar) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+artifacts {
+    archives javadocJar, sourcesJar
+}
+
+signing {
+    sign configurations.archives
+}
 
 dependencies {
     implementation gradleApi()
@@ -8,24 +27,55 @@ dependencies {
     implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
 }
 
-repositories {
-    mavenCentral()
-}
+group = "io.github.goodyuanwei"
+archivesBaseName = "devtools"
+version = "1.0.0.snapshot"
 
+println "------------ userName = ${ossrhUsername}"
+println "------------ passWord = ${ossrhPassword}"
 
 uploadArchives {
     repositories {
         mavenDeployer {
-            pom.groupId = 'io.github.goodyuanwei'
-            pom.artifactId = 'devtools'
-            pom.version = '1.0.0'
 
-            repository(url: "https://s01.oss.sonatype.org/content/repositories/snapshots/") {
-                authentication(userName: "yuanweibetter", password: "Douhong@20202")
+            beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+
+            repository(url: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/") {
+                authentication(userName: ossrhUsername, password: ossrhPassword)
             }
 
-            //本地的Maven地址设置为D:/repos
-            // repository(url: uri('/Users/yuanwei/Desktop/repos'))
+            snapshotRepository(url: "https://s01.oss.sonatype.org/content/repositories/snapshots/") {
+                authentication(userName: ossrhUsername, password: ossrhPassword)
+            }
+
+            pom.project {
+                name archivesBaseName
+                packaging 'jar'
+                // optionally artifactId can be defined here
+                description 'android develop plugin set'
+                url 'https://github.com/goodyuanwei/devtools'
+
+                scm {
+                    connection 'scm:git:https://github.com/goodyuanwei/devtools.git'
+                    developerConnection 'scm:git:git@github.com:goodyuanwei/devtools.git'
+                    url 'https://github.com/goodyuanwei/devtools'
+                }
+
+                licenses {
+                    license {
+                        name 'The Apache License, Version 2.0'
+                        url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id 'yuanweibetter'
+                        name 'yuan wei'
+                        email 'yuanweibetter@163.com'
+                    }
+                }
+            }
         }
     }
 }
