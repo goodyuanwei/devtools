@@ -2,11 +2,8 @@ apply plugin: 'groovy'
 apply plugin: 'maven'
 
 dependencies {
-    //gradle sdk
     implementation gradleApi()
-    //groovy sdk
     implementation localGroovy()
-
     implementation 'com.android.tools.build:gradle:4.1.2'
     implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
 }
@@ -20,12 +17,12 @@ uploadArchives {
     repositories {
         mavenDeployer {
             pom.groupId = 'io.github.goodyuanwei'
-            pom.artifactId = 'tools'
+            pom.artifactId = 'devtools'
             pom.version = '1.0.0'
 
-//            repository(url: "http://developer.huawei.com/repo") {
-//                authentication(userName: "", password: "")
-//            }
+            repository(url: "https://s01.oss.sonatype.org/content/repositories/snapshots/") {
+                authentication(userName: "yuanweibetter", password: "Douhong@20202")
+            }
 
             //本地的Maven地址设置为D:/repos
             // repository(url: uri('/Users/yuanwei/Desktop/repos'))
