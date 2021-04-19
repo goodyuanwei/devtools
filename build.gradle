@@ -19,7 +19,7 @@ repositories {
 uploadArchives {
     repositories {
         mavenDeployer {
-            pom.groupId = 'com.p1.developer'
+            pom.groupId = 'com.github.goodyuanwei'
             pom.artifactId = 'tools'
             pom.version = '1.0.0'
 
