@@ -28,7 +28,7 @@ uploadArchives {
 //            }
 
             //本地的Maven地址设置为D:/repos
-            repository(url: uri('/Users/yuanwei/Desktop/repos'))
+            // repository(url: uri('/Users/yuanwei/Desktop/repos'))
         }
     }
 }
