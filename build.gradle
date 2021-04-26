@@ -1,38 +1,16 @@
 apply plugin: 'groovy'
 apply plugin: 'maven'
 apply plugin: 'signing'
-
-task javadocJar(type: Jar) {
-    classifier = 'javadoc'
-    from javadoc
-}
-
-task sourcesJar(type: Jar) {
-    classifier = 'sources'
-    from sourceSets.main.allSource
-}
-
-artifacts {
-    archives javadocJar, sourcesJar
-}
+//gpg --export-secret-keys -o secring.gpg
 
 signing {
+    required { gradle.taskGraph.hasTask("uploadArchives") }
     sign configurations.archives
-}
-
-dependencies {
-    implementation gradleApi()
-    implementation localGroovy()
-    implementation 'com.android.tools.build:gradle:4.1.2'
-    implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
 }
 
 group = "io.github.goodyuanwei"
 archivesBaseName = "devtools"
-version = "1.0.0.snapshot"
-
-println "------------ userName = ${ossrhUsername}"
-println "------------ passWord = ${ossrhPassword}"
+version = "1.0.0"
 
 uploadArchives {
     repositories {
@@ -48,12 +26,15 @@ uploadArchives {
                 authentication(userName: ossrhUsername, password: ossrhPassword)
             }
 
+            pom.groupId = PUBLISH_GROUP_ID
+            pom.artifactId = PUBLISH_ARTIFACT_ID
+            pom.version = PUBLISH_VERSION
+
             pom.project {
                 name archivesBaseName
-                packaging 'jar'
-                // optionally artifactId can be defined here
+                packaging 'aar' //我这里发布的是安卓的包，所有写的aar
                 description 'android develop plugin set'
-                url 'https://github.com/goodyuanwei/devtools'
+                url 'https://github.com/goodyuanwei'
 
                 scm {
                     connection 'scm:git:https://github.com/goodyuanwei/devtools.git'
@@ -78,4 +59,56 @@ uploadArchives {
             }
         }
     }
+}
+
+//uploadArchives {
+//    repositories {
+//        mavenDeployer {
+//
+//            beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+//
+//            repository(url: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/") {
+//                authentication(userName: ossrhUsername, password: ossrhPassword)
+//            }
+//
+//            snapshotRepository(url: "https://s01.oss.sonatype.org/content/repositories/snapshots/") {
+//                authentication(userName: ossrhUsername, password: ossrhPassword)
+//            }
+//
+//            pom.project {
+//                name archivesBaseName
+//                packaging 'jar'
+//                // optionally artifactId can be defined here
+//                description 'android develop plugin set'
+//                url 'https://github.com/goodyuanwei/devtools'
+//
+//                scm {
+//                    connection 'scm:git:https://github.com/goodyuanwei/devtools.git'
+//                    developerConnection 'scm:git:git@github.com:goodyuanwei/devtools.git'
+//                    url 'https://github.com/goodyuanwei/devtools'
+//                }
+//                licenses {
+//                    license {
+//                        name 'The Apache License, Version 2.0'
+//                        url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+//                    }
+//                }
+//
+//                developers {
+//                    developer {
+//                        id 'yuanweibetter'
+//                        name 'yuan wei'
+//                        email 'yuanweibetter@163.com'
+//                    }
+//                }
+//            }
+//        }
+//    }
+//}
+
+dependencies {
+    implementation gradleApi()
+    implementation localGroovy()
+    implementation 'com.android.tools.build:gradle:4.1.2'
+    implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
 }
