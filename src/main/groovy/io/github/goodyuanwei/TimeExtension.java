@@ -1,4 +1,4 @@
-package io.github.goodyuanwei
+package io.github.goodyuanwei;
 
 public class TimeExtension {
   String functime_c;

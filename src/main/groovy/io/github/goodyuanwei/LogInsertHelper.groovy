@@ -1,4 +1,4 @@
-package io.github.goodyuanwei
+package io.github.goodyuanwei;
 
 import javassist.ClassPool
 import javassist.CtClass

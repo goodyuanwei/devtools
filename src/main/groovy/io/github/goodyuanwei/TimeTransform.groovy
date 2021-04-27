@@ -1,4 +1,4 @@
-package io.github.goodyuanwei
+package io.github.goodyuanwei;
 
 import com.android.build.api.transform.*
 import com.android.build.gradle.internal.pipeline.TransformManager
