@@ -10,7 +10,7 @@ signing {
 
 group = "io.github.goodyuanwei"
 archivesBaseName = "devtools"
-version = "1.0.0.1"
+version = "1.0.0.2"
 
 uploadArchives {
     repositories {
