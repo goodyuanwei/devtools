@@ -1,13 +1,23 @@
 package io.github.goodyuanwei;
 
+import com.android.SdkConstants
 import com.android.build.api.transform.*
 import com.android.build.gradle.internal.pipeline.TransformManager
+import javassist.ClassPool
+import javassist.CtClass
+import javassist.CtMethod
+import javassist.Modifier
 import org.gradle.api.Project
 import org.apache.commons.io.FileUtils
+import org.apache.commons.io.IOUtils
+
+import java.util.jar.JarEntry
+import java.util.jar.JarFile
+import java.util.jar.JarOutputStream
+import java.util.zip.ZipEntry
 
 class TimeTransform extends Transform {
-
-    private Project mProject
+    Project mProject
 
     TimeTransform(Project project) {
         this.mProject = project
@@ -35,20 +45,13 @@ class TimeTransform extends Transform {
 
     @Override
     void transform(Context context, Collection<TransformInput> inputs, Collection<TransformInput> referencedInputs, TransformOutputProvider outputProvider, boolean isIncremental) throws IOException, TransformException, InterruptedException {
-
         TimeExtension timerExtension = mProject.extensions.getByName('tantan')
-
         def c = null
         def f = null
 
         if (timerExtension) {
-            println "-------- timerExtension.handleClass is ${timerExtension.functime_c}"
-            println "-------- timerExtension.handleMethod is ${timerExtension.functime_f}"
             c = timerExtension.functime_c
             f = timerExtension.functime_f
-        }
-        each {
-            println("-------- timerExtension is null")
         }
 
         if (outputProvider != null) {
@@ -57,21 +60,19 @@ class TimeTransform extends Transform {
 
         inputs.each {
             TransformInput input ->
-                input.directoryInputs.each {
-                    DirectoryInput directoryInput ->
-                        LogInsertHelper.loadClassPath(directoryInput.file.absolutePath, mProject)
+                input.directoryInputs.each { directoryInput ->
+                    loadClassPath(directoryInput.file.absolutePath, mProject)
                 }
 
-                input.jarInputs.each {
-                    JarInput jarInput ->
-                        LogInsertHelper.loadClassPath(jarInput.file.absolutePath, mProject)
+                input.jarInputs.each { JarInput jarInput ->
+                    loadClassPath(jarInput.file.absolutePath, mProject)
                 }
 
                 input.directoryInputs.each {
                     DirectoryInput directoryInput ->
                         def dest = outputProvider.getContentLocation(directoryInput.name, directoryInput.contentTypes, directoryInput.scopes, Format.DIRECTORY)
                         if (c && f) {
-                            LogInsertHelper.injectFunTime(directoryInput.file.absolutePath, c, f)
+                            processDirFile(directoryInput.file.absolutePath, c, f)
                         }
                         FileUtils.copyDirectory(directoryInput.file, dest)
                 }
@@ -79,8 +80,153 @@ class TimeTransform extends Transform {
                 input.jarInputs.each {
                     JarInput jarInput ->
                         def dest = outputProvider.getContentLocation(jarInput.name, jarInput.contentTypes, jarInput.scopes, Format.JAR)
-                        FileUtils.copyFile(jarInput.file, dest)
+                        if (jarInput.name.contains('viewpager2')) {
+                            println("--------- jarInput.path = ${jarInput.file.path}")
+                            processJarFile(jarInput, dest)
+                        }
+                        each {
+                            FileUtils.copyFile(jarInput.file, dest)
+                        }
                 }
+
         }
     }
+
+    ClassPool sClassPool = ClassPool.getDefault()
+
+    void loadClassPath(String path, Project project) {
+        sClassPool.appendClassPath(path)
+        sClassPool.appendClassPath(project.android.bootClasspath[0].toString())
+    }
+
+    void processDirFile(String path, String c, String f) {
+
+        File dir = new File(path)
+        if (!dir.isDirectory()) {
+            return
+        }
+
+        dir.eachFileRecurse { File file ->
+            if (checkClassFile(file.name)) {
+                boolean isCodeChanged = false
+
+                String tempStr = file.getCanonicalPath()
+                String fullpath = tempStr.substring(dir.absolutePath.length() + 1, tempStr.length())
+                String className = fullpath.replace("/", ".")
+
+                if (className.endsWith(".class")) {
+                    className = className.replace(".class", "")
+                }
+
+                CtClass ctClass = sClassPool.getCtClass(className)
+
+                if (ctClass.isFrozen()) {
+                    ctClass.defrost()
+                }
+
+                ctClass.getDeclaredMethods().each { ctMethod ->
+                    if (isFilterMethod(ctMethod)) {
+                        ctMethod.addLocalVariable("__hook_start_time__", CtClass.longType)
+                        ctMethod.insertBefore("__hook_start_time__ = System.currentTimeMillis();")
+                        ctMethod.insertAfter("${c}.${f}(\"${ctClass.name}\", \"${ctMethod.name}\", System.currentTimeMillis() - __hook_start_time__);")
+                        isCodeChanged = true
+                    }
+                }
+
+                if (isCodeChanged) {
+                    ctClass.writeFile(path)
+                }
+
+                ctClass.detach()
+            }
+        }
+
+    }
+
+    void processJarFile(JarInput jarInput, File dest) {
+        if (!jarInput.file.path.endsWith('.jar')) {
+            return
+        }
+
+        File newFile = new File(jarInput.file.getParent() + File.separator + "classes_temp.jar")
+        if (newFile.exists()) {
+            newFile.delete()
+        }
+
+        JarOutputStream jos = new JarOutputStream(new FileOutputStream(newFile))
+        JarFile jarFile = new JarFile(jarInput.file)
+        Enumeration enumeration = jarFile.entries()
+
+        while (enumeration.hasMoreElements()) {
+            JarEntry jarEntry = enumeration.nextElement()
+            InputStream is = jarFile.getInputStream(jarEntry)
+
+            String entryName = jarEntry.getName()
+            ZipEntry zipEntry = new ZipEntry(entryName)
+
+            String[] classNames = entryName.split("/")
+            String className = classNames[classNames.length - 1]
+
+            if (classNames.length > 0 && checkJarFile(entryName) && checkClassFile(className)) {
+                jos.putNextEntry(zipEntry)
+                String simpleName = entryName.replace('/', '.').replace(SdkConstants.DOT_CLASS, '')
+                CtClass ctClass = sClassPool.getCtClass(simpleName)
+
+                if (ctClass.isFrozen()) {
+                    ctClass.defrost()
+                }
+
+                ctClass.getDeclaredMethods().each { ctMethod ->
+                    if (isFilterMethod(ctMethod)) {
+
+                    }
+                }
+                jos.write(ctClass.toBytecode())
+            } else {
+                jos.putNextEntry(zipEntry)
+                jos.write(IOUtils.toByteArray(is))
+            }
+
+            jos.closeEntry()
+        }
+
+        jos.close()
+        jarFile.close()
+
+        FileUtils.copyFile(newFile, dest)
+        newFile.delete()
+    }
+
+    boolean checkJarFile(String name) {
+//        return !name.startsWith("android") && !name.startsWith("javassist")
+        return true
+    }
+
+    boolean checkClassFile(String name) {
+        if (!name.endsWith('.class')) {
+            return false
+        }
+
+        if (name.startsWith('R\$')) {
+            return false
+        }
+
+        if (name == 'R.class' || name == 'BuildConfig.class' || name == 'FunctionTimer.class') {
+            return false
+        }
+        return true
+    }
+
+    boolean isFilterMethod(CtMethod method) {
+        if (method.isEmpty() || Modifier.isNative(method.getModifiers())) {
+            return false
+        }
+
+        String name = method.getName()
+        if (name.contains("\$") && name.contains("isLoggable")) {
+            return false
+        }
+        return true
+    }
+
 }
