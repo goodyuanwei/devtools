@@ -19,13 +19,17 @@ import java.util.zip.ZipEntry
 class TimeTransform extends Transform {
     Project mProject
 
+    String loggerClass
+
+    String[] packages
+
     TimeTransform(Project project) {
         this.mProject = project
     }
 
     @Override
     String getName() {
-        return 'FuncTimeTransform'
+        return getClass().getSimpleName()
     }
 
     @Override
@@ -45,13 +49,17 @@ class TimeTransform extends Transform {
 
     @Override
     void transform(Context context, Collection<TransformInput> inputs, Collection<TransformInput> referencedInputs, TransformOutputProvider outputProvider, boolean isIncremental) throws IOException, TransformException, InterruptedException {
-        TimeExtension timerExtension = mProject.extensions.getByName('tantan')
-        def c = null
-        def f = null
-
-        if (timerExtension) {
-            c = timerExtension.functime_c
-            f = timerExtension.functime_f
+        ToolsExtension extension = mProject.extensions.getByName('develop')
+        if (extension.hookPackage) {
+            packages = extension.hookPackage.split(',')
+            packages.eachWithIndex { String entry, int i ->
+                packages[i] = entry.trim()
+                println("------- package:${packages[i]}")
+            }
+        }
+        loggerClass = extension.loggerClass
+        if (!loggerClass || !packages) {
+            return
         }
 
         if (outputProvider != null) {
@@ -71,24 +79,15 @@ class TimeTransform extends Transform {
                 input.directoryInputs.each {
                     DirectoryInput directoryInput ->
                         def dest = outputProvider.getContentLocation(directoryInput.name, directoryInput.contentTypes, directoryInput.scopes, Format.DIRECTORY)
-                        if (c && f) {
-                            processDirFile(directoryInput.file.absolutePath, c, f)
-                        }
+                        processDirFile(directoryInput.file.absolutePath)
                         FileUtils.copyDirectory(directoryInput.file, dest)
                 }
 
                 input.jarInputs.each {
                     JarInput jarInput ->
                         def dest = outputProvider.getContentLocation(jarInput.name, jarInput.contentTypes, jarInput.scopes, Format.JAR)
-                        if (jarInput.name.contains('viewpager2')) {
-                            println("--------- jarInput.path = ${jarInput.file.path}")
-                            processJarFile(jarInput, dest)
-                        }
-                        each {
-                            FileUtils.copyFile(jarInput.file, dest)
-                        }
+                        processJarFile(jarInput, dest)
                 }
-
         }
     }
 
@@ -99,48 +98,33 @@ class TimeTransform extends Transform {
         sClassPool.appendClassPath(project.android.bootClasspath[0].toString())
     }
 
-    void processDirFile(String path, String c, String f) {
+    void processDirFile(String path) {
 
         File dir = new File(path)
         if (!dir.isDirectory()) {
             return
         }
 
-        dir.eachFileRecurse { File file ->
-            if (checkClassFile(file.name)) {
+        dir.eachFileRecurse { file ->
+            def className = file.absolutePath.substring(dir.absolutePath.length() + 1).replace('/', '.')
+            if (checkClassFile(className)) {
                 boolean isCodeChanged = false
-
-                String tempStr = file.getCanonicalPath()
-                String fullpath = tempStr.substring(dir.absolutePath.length() + 1, tempStr.length())
-                String className = fullpath.replace("/", ".")
-
-                if (className.endsWith(".class")) {
-                    className = className.replace(".class", "")
-                }
-
-                CtClass ctClass = sClassPool.getCtClass(className)
+                CtClass ctClass = sClassPool.getCtClass(className.replace('.class', ""))
 
                 if (ctClass.isFrozen()) {
                     ctClass.defrost()
                 }
-
                 ctClass.getDeclaredMethods().each { ctMethod ->
                     if (isFilterMethod(ctMethod)) {
-                        ctMethod.addLocalVariable("__hook_start_time__", CtClass.longType)
-                        ctMethod.insertBefore("__hook_start_time__ = System.currentTimeMillis();")
-                        ctMethod.insertAfter("${c}.${f}(\"${ctClass.name}\", \"${ctMethod.name}\", System.currentTimeMillis() - __hook_start_time__);")
-                        isCodeChanged = true
+                        isCodeChanged = modifyMethod(ctClass, ctMethod)
                     }
                 }
-
                 if (isCodeChanged) {
                     ctClass.writeFile(path)
                 }
-
                 ctClass.detach()
             }
         }
-
     }
 
     void processJarFile(JarInput jarInput, File dest) {
@@ -160,17 +144,13 @@ class TimeTransform extends Transform {
         while (enumeration.hasMoreElements()) {
             JarEntry jarEntry = enumeration.nextElement()
             InputStream is = jarFile.getInputStream(jarEntry)
-
-            String entryName = jarEntry.getName()
+            def entryName = jarEntry.getName()
+            def className = entryName.replace('/', '.')
             ZipEntry zipEntry = new ZipEntry(entryName)
 
-            String[] classNames = entryName.split("/")
-            String className = classNames[classNames.length - 1]
-
-            if (classNames.length > 0 && checkJarFile(entryName) && checkClassFile(className)) {
+            if (checkClassFile(className)) {
                 jos.putNextEntry(zipEntry)
-                String simpleName = entryName.replace('/', '.').replace(SdkConstants.DOT_CLASS, '')
-                CtClass ctClass = sClassPool.getCtClass(simpleName)
+                CtClass ctClass = sClassPool.getCtClass(className.replace('.class', ""))
 
                 if (ctClass.isFrozen()) {
                     ctClass.defrost()
@@ -178,7 +158,7 @@ class TimeTransform extends Transform {
 
                 ctClass.getDeclaredMethods().each { ctMethod ->
                     if (isFilterMethod(ctMethod)) {
-
+                        modifyMethod(ctClass, ctMethod)
                     }
                 }
                 jos.write(ctClass.toBytecode())
@@ -197,9 +177,20 @@ class TimeTransform extends Transform {
         newFile.delete()
     }
 
-    boolean checkJarFile(String name) {
-//        return !name.startsWith("android") && !name.startsWith("javassist")
-        return true
+    boolean modifyMethod(CtClass ctClass, CtMethod ctMethod) {
+        def success = true
+        try {
+            ctMethod.addLocalVariable("__hook_start_time__", CtClass.longType)
+            ctMethod.insertBefore("__hook_start_time__ = System.currentTimeMillis();")
+//            ctMethod.insertAfter("${loggerClass}.onFuncTime(\"${ctClass.name}\", \"${ctMethod.name}\", System.currentTimeMillis() - __hook_start_time__);")
+            ctMethod.insertAfter("${loggerClass}.onFuncTime(\"${ctClass.name}\", \"${ctMethod.name}\", System.currentTimeMillis() - __hook_start_time__);")
+            println("--------- hook ${ctClass.name}.${ctMethod.name}")
+        }
+        catch (e) {
+            println("--------- fail ${ctClass.name}.${ctMethod.name} ${e.getMessage()}")
+            success = false
+        }
+        return success
     }
 
     boolean checkClassFile(String name) {
@@ -207,18 +198,46 @@ class TimeTransform extends Transform {
             return false
         }
 
-        if (name.startsWith('R\$')) {
+        name = name.replace('.class', '')
+
+        if (name == loggerClass) {
             return false
         }
 
-        if (name == 'R.class' || name == 'BuildConfig.class' || name == 'FunctionTimer.class') {
+        if (name.endsWith('.R')) {
             return false
         }
-        return true
+
+        if (name.contains('R\$')) {
+            return false
+        }
+
+        if (name.endsWith('.BuildConfig')) {
+            return false
+        }
+
+        def result = false
+        for (def str in packages) {
+            if (name.startsWith(str)) {
+                println("------ checkClass ${name} true")
+                result = true
+                break
+            }
+        }
+
+        return result
     }
 
     boolean isFilterMethod(CtMethod method) {
-        if (method.isEmpty() || Modifier.isNative(method.getModifiers())) {
+        if (method.isEmpty()) {
+            return false
+        }
+
+        if (method.name.startsWith('access$')) {
+            return false
+        }
+
+        if (Modifier.isNative(method.getModifiers())) {
             return false
         }
 
@@ -228,5 +247,4 @@ class TimeTransform extends Transform {
         }
         return true
     }
-
 }
